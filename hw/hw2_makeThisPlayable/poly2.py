@@ -40,6 +40,36 @@ def draw_dashed_circle(t, x, y, radius):
 
 # --- 1. Utility Classes & Concepts (Exercises 6, 7, 8) ---
 
+def shape_for_color(color):
+    """Return a shape identifier for a given color.
+
+    Accepts hex strings (e.g., '#FF4500') or common color names
+    (e.g., 'orange', 'blue', 'green', 'gold'). Returns one of:
+    'triangle', 'square', 'pentagon', or 'hexagon'.
+    """
+    if not isinstance(color, str) or not color.strip():
+        raise ValueError("color must be a non-empty string")
+
+    key = color.strip().lower()
+
+    color_to_shape = {
+        "#ff4500": "triangle",  # OrangeRed used by Triangle
+        "orangered": "triangle",
+        "orange": "triangle",
+        "#1e90ff": "square",  # DodgerBlue used by Square
+        "dodgerblue": "square",
+        "blue": "square",
+        "#3cb371": "pentagon",  # MediumSeaGreen used by Pentagon
+        "mediumseagreen": "pentagon",
+        "seagreen": "pentagon",
+        "green": "pentagon",
+        "#daa520": "hexagon",  # Goldenrod used by Hexagon
+        "goldenrod": "hexagon",
+        "gold": "hexagon",
+        "yellow": "hexagon",
+    }
+
+    return color_to_shape.get(key, "triangle")
 
 class VelocityVector:
     """Represents the movement vector of a polygon."""
