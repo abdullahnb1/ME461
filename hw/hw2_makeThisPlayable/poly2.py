@@ -418,6 +418,232 @@ def handle_click(x, y):
         SHAPES[nearest_idx].show_circle = not SHAPES[nearest_idx].show_circle
 
 
+# --- Helpers: physics, HUD, overlay, and controls ---
+
+def toggle_mass_mode():
+    global MASS_MODE
+    MASS_MODE = "area" if MASS_MODE == "equal" else "equal"
+
+
+def draw_hud():
+    if HUD_TURTLE is None:
+        return
+    HUD_TURTLE.up()
+    HUD_TURTLE.color("white")
+    HUD_TURTLE.goto(-SCREEN_WIDTH / 2 + 10, SCREEN_HEIGHT / 2 - 30)
+    HUD_TURTLE.write(
+        f"Mass mode: {MASS_MODE}   Shapes: {len(SHAPES)}   (m) toggle, (e) edit rules, (q) quit",
+        align="left",
+        font=("Arial", 12, "normal"),
+    )
+
+
+def shape_for_color(color_key: str, x: float, y: float) -> Polygon:
+    if color_key == "r":
+        return Triangle(x, y)
+    if color_key == "g":
+        return Pentagon(x, y)
+    if color_key == "b":
+        return Square(x, y)
+    if color_key == "y":
+        return Hexagon(x, y)
+    return Triangle(x, y)
+
+
+def random_velocity_for_color(color_key: str) -> VelocityVector:
+    if color_key == "r":
+        speed = random.uniform(2.5, 4.0)
+    elif color_key == "y":
+        speed = random.uniform(2.0, 3.0)
+    elif color_key == "g":
+        speed = random.uniform(1.5, 2.5)
+    else:
+        speed = random.uniform(0.8, 1.5)
+    angle = random.uniform(0, 2 * math.pi)
+    return VelocityVector(speed * math.cos(angle), speed * math.sin(angle))
+
+
+def random_empty_position(radius: float, max_attempts: int = 200) -> Optional[Tuple[float, float]]:
+    half_w, half_h = SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2
+    for _ in range(max_attempts):
+        x = random.uniform(-half_w + radius, half_w - radius)
+        y = random.uniform(-half_h + radius, half_h - radius)
+        ok = True
+        for s in SHAPES:
+            if math.hypot(x - s.x, y - s.y) < (radius + s.bounding_radius() + 3):
+                ok = False
+                break
+        if ok:
+            return x, y
+    return None
+
+
+def bounding_radius_for_color(color_key: str) -> float:
+    if color_key == "r":
+        return 22 * 1.5
+    if color_key == "g":
+        return 26 * 1.1
+    if color_key == "b":
+        return (30 * math.sqrt(2)) / 2
+    if color_key == "y":
+        return 26
+    return 22 * 1.5
+
+
+def spawn_key(color_key: str):
+    r = bounding_radius_for_color(color_key)
+    pos = random_empty_position(r)
+    if pos is None:
+        return
+    x, y = pos
+    SHAPES.append(shape_for_color(color_key, x, y))
+
+
+def draw_rules_overlay():
+    if HUD_TURTLE is None:
+        return
+    left, top, cell, rows, cols = rules_overlay_geometry()
+    HUD_TURTLE.up()
+    HUD_TURTLE.color("#CCCCCC")
+    HUD_TURTLE.goto(left, top + 20)
+    HUD_TURTLE.write(
+        "Collision Rules (click cell to cycle; 'e' to close)",
+        align="left",
+        font=("Arial", 12, "bold"),
+    )
+
+    for ri, c1 in enumerate(COLORS_ORDER):
+        for ci, c2 in enumerate(COLORS_ORDER):
+            x0 = left + ci * cell
+            y0 = top - ri * cell
+            HUD_TURTLE.goto(x0, y0)
+            HUD_TURTLE.color("#888888")
+            HUD_TURTLE.down()
+            for _ in range(2):
+                HUD_TURTLE.forward(cell)
+                HUD_TURTLE.right(90)
+                HUD_TURTLE.forward(cell)
+                HUD_TURTLE.right(90)
+            HUD_TURTLE.up()
+            rule = COLLISION_RULES[(min(c1, c2), max(c1, c2))]
+            HUD_TURTLE.color("white")
+            HUD_TURTLE.goto(x0 + 6, y0 - 20)
+            HUD_TURTLE.write(
+                f"{c1.upper()} x {c2.upper()}\n{rule}",
+                align="left",
+                font=("Arial", 10, "normal"),
+            )
+
+
+def rules_overlay_geometry():
+    grid_cell = 110
+    cols = len(COLORS_ORDER)
+    rows = len(COLORS_ORDER)
+    total_w = cols * grid_cell
+    total_h = rows * grid_cell
+    left = SCREEN_WIDTH / 2 - total_w - 10
+    top = SCREEN_HEIGHT / 2 - 50
+    return left, top, grid_cell, rows, cols
+
+
+def rules_overlay_cell_at(x: float, y: float) -> Optional[Tuple[str, str]]:
+    left, top, cell, rows, cols = rules_overlay_geometry()
+    if not (left <= x <= left + cols * cell and top - rows * cell <= y <= top):
+        return None
+    ci = int((x - left) // cell)
+    ri = int((top - y) // cell)
+    c1 = COLORS_ORDER[ri]
+    c2 = COLORS_ORDER[ci]
+    return c1, c2
+
+
+def toggle_rules_overlay():
+    global RULES_OVERLAY_ACTIVE
+    RULES_OVERLAY_ACTIVE = not RULES_OVERLAY_ACTIVE
+
+
+def convert_shape(shape: "Polygon", target_color_key: str) -> "Polygon":
+    new_shape = shape_for_color(target_color_key, shape.x, shape.y)
+    new_shape.velocity = shape.velocity
+    new_shape.show_circle = shape.show_circle
+    return new_shape
+
+
+def handle_collisions():
+    n = len(SHAPES)
+    to_remove: set[int] = set()
+    to_replace: List[Tuple[int, Polygon]] = []
+
+    for i in range(n):
+        if i in to_remove:
+            continue
+        a = SHAPES[i]
+        for j in range(i + 1, n):
+            if j in to_remove:
+                continue
+            b = SHAPES[j]
+            ra = a.bounding_radius()
+            rb = b.bounding_radius()
+            dx = b.x - a.x
+            dy = b.y - a.y
+            dist = math.hypot(dx, dy)
+            if dist == 0:
+                dist = 1e-6
+                dx, dy = 1e-6, 0.0
+            if dist <= ra + rb:
+                nx, ny = dx / dist, dy / dist
+                rvx = b.velocity.vx - a.velocity.vx
+                rvy = b.velocity.vy - a.velocity.vy
+                rel_vel_along_normal = rvx * nx + rvy * ny
+                if rel_vel_along_normal < 0:
+                    overlap = (ra + rb) - dist
+                    if overlap > 0:
+                        push_a = overlap * 0.5
+                        push_b = overlap - push_a
+                        a.x -= nx * push_a
+                        a.y -= ny * push_a
+                        b.x += nx * push_b
+                        b.y += ny * push_b
+
+                    m1 = a.mass()
+                    m2 = b.mass()
+                    v1n = a.velocity.vx * nx + a.velocity.vy * ny
+                    v2n = b.velocity.vx * nx + b.velocity.vy * ny
+                    v1t_x = a.velocity.vx - v1n * nx
+                    v1t_y = a.velocity.vy - v1n * ny
+                    v2t_x = b.velocity.vx - v2n * nx
+                    v2t_y = b.velocity.vy - v2n * ny
+                    v1n_prime = (v1n * (m1 - m2) + 2 * m2 * v2n) / (m1 + m2)
+                    v2n_prime = (v2n * (m2 - m1) + 2 * m1 * v1n) / (m1 + m2)
+                    a.velocity.vx = v1t_x + v1n_prime * nx
+                    a.velocity.vy = v1t_y + v1n_prime * ny
+                    b.velocity.vx = v2t_x + v2n_prime * nx
+                    b.velocity.vy = v2t_y + v2n_prime * ny
+
+                    rule_key = (min(a.color_key, b.color_key), max(a.color_key, b.color_key))
+                    rule = COLLISION_RULES.get(rule_key, "noop")
+                    if rule == "both_disappear":
+                        to_remove.add(i)
+                        to_remove.add(j)
+                    elif rule == "a_disappear":
+                        to_remove.add(i)
+                    elif rule == "b_disappear":
+                        to_remove.add(j)
+                    elif rule.startswith("a->"):
+                        new_c = rule.split("->", 1)[1]
+                        to_replace.append((i, convert_shape(a, new_c)))
+                    elif rule.startswith("b->"):
+                        new_c = rule.split("->", 1)[1]
+                        to_replace.append((j, convert_shape(b, new_c)))
+
+    if to_remove or to_replace:
+        for idx, new_shape in to_replace:
+            if idx not in to_remove and 0 <= idx < len(SHAPES):
+                SHAPES[idx] = new_shape
+        for idx in sorted(to_remove, reverse=True):
+            if 0 <= idx < len(SHAPES):
+                del SHAPES[idx]
+
 def setup_simulation():
     """Initializes the turtle screen and creates the shapes."""
 
