@@ -450,6 +450,7 @@ def shape_for_color(color_key: str, x: float, y: float) -> Polygon:
     return Triangle(x, y)
 
 
+ 
 def random_velocity_for_color(color_key: str) -> VelocityVector:
     if color_key == "r":
         speed = random.uniform(2.5, 4.0)
@@ -753,17 +754,7 @@ def draw_hud():
     )
 
 
-def shape_for_color(color_key: str, x: float, y: float) -> Polygon:
-    if color_key == "r":
-        return Triangle(x, y)
-    if color_key == "g":
-        return Pentagon(x, y)
-    if color_key == "b":
-        return Square(x, y)
-    if color_key == "y":
-        return Hexagon(x, y)
-    return Triangle(x, y)
-
+ 
 
 def random_velocity_for_color(color_key: str) -> VelocityVector:
     if color_key == "r":
